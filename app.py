@@ -8,10 +8,12 @@ import time
 from flask import Flask, request, jsonify
 import pandas as pd
 import pymongo
+from flask_cors import CORS
 
 from utils import dataframe_parser, get_paginated_response, get_queries_from_user
 
 app = Flask(__name__)
+CORS(app)
 app.es_client = Elasticsearch('https://localhost:9200', basic_auth=("elastic", "6E0GWL_MEddnKJWCnk*M"),
                               ca_certs="./http_ca.crt")
 app.mongo_client = pymongo.MongoClient("mongodb://root:123456@localhost:27017/?authMechanism=DEFAULT")
