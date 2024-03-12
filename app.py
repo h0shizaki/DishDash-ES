@@ -46,7 +46,7 @@ def search_recipe():
     return response
 
 
-@app.route('/browse', methods=["GET"])
+@app.route('/recipe', methods=["GET"])
 def browse():
     start = time.time()
     user_id = request.args.get('_id')
@@ -77,26 +77,40 @@ def browse():
     return response
 
 
-@app.route('/search_es', methods=["GET"])
-def search_es():
+@app.route('/recipe/<recipe_id>', methods=["GET"])
+def recipe(recipe_id):
     start = time.time()
-    res = {'status': 'success'}
-    argList = request.args.to_dict(flat=False)
-    query_term = argList['query'][0]
-    results = app.es_client.search(index='recipe', source_excludes=['url_lists'], size=100,
-                                   query={"match": {"text": query_term}})
+    suggest_size = request.args.get('suggest_size', 4)
+
+    recipe_db = app.db['cleaned_recipe']
+    result = recipe_db.find_one({'_id': ObjectId(recipe_id)})
+
     end = time.time()
-    total_hit = results['hits']['total']['value']
-    results_df = pd.DataFrame([[hit["_source"]['title'], hit["_source"]['url'], hit["_source"]
-                                                                                ['text'][:100], hit["_score"]] for hit
-                               in results['hits']['hits']], columns=['title', 'url', 'text',
-                                                                     'score'])
+    response = {'elapse': end - start}
 
-    res['total_hit'] = total_hit
-    res['results'] = results_df.to_dict('records')
-    res['elapse'] = end - start
+    if result is None:
+        response['status'] = '404'
+        response['message'] = 'Recipe not found'
+        return response
 
-    return res
+    query = {
+        "more_like_this": {
+            # Breakfast Eggcake ID:'65d5e4928598535be43ec668'
+            "fields": ["Name", "Keywords", "RecipeIngredientParts", "RecipeCategory"],
+            "like": [{"_id": recipe_id}], "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20
+        }
+    }
+
+    suggestions = app.es_client.search(index='recipe', query=query, size=suggest_size)
+    suggestions_df = dataframe_parser(suggestions)
+
+    result['_id'] = recipe_id
+    response['result'] = result
+    response['suggestions'] = suggestions_df.to_dict("records")
+    response['elapse'] = end - start
+    response['status'] = 'success'
+
+    return response
 
 
 if __name__ == '__main__':
