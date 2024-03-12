@@ -9,7 +9,7 @@ from flask import Flask, request, jsonify
 import pandas as pd
 import pymongo
 
-from utils import dataframe_parser, get_paginated_response
+from utils import dataframe_parser, get_paginated_response, get_queries_from_user
 
 app = Flask(__name__)
 app.es_client = Elasticsearch('https://localhost:9200', basic_auth=("elastic", "6E0GWL_MEddnKJWCnk*M"),
@@ -33,7 +33,7 @@ def search_recipe():
     results = app.es_client.search(index='recipe', source_excludes=['url_lists'], size=search_size, query=query)
     total_hit = results['hits']['total']['value']
     end = time.time()
-    response = get_paginated_response(results, '/search_recipe?query=' + query_term + '&search_size=' + search_size,
+    response = get_paginated_response(results, '/browse?query=' + query_term + '&search_size=' + str(search_size),
                                       total=len(results["hits"]["hits"]),
                                       start=request.args.get('start', 1),
                                       limit=request.args.get('limit', 20))
@@ -53,9 +53,28 @@ def browse():
     search_size = request.args.get('search_size', 100)
     users = app.db['users']
     user = users.find_one({'_id': ObjectId(user_id)})
-    print(user['username'], user['interestedCategory'], user['interestedRecipes'], user['uninterestedRecipes'])
+    if user == None:
+        return {'message': 'User Not Found', 'status': '404'}
 
-    return {start: start}
+    print(user['username'], user['interestedCategory'], user['interestedRecipe'], user['uninterestedRecipe'])
+
+    query = get_queries_from_user(user)
+
+    results = app.es_client.search(index='recipe', query=query, size=search_size)
+    total_hit = results['hits']['total']['value']
+    end = time.time()
+    response = get_paginated_response(results,
+                                      '/search_recipe?_id=' + str(user_id) + '&search_size=' + str(search_size),
+                                      total=len(results["hits"]["hits"]),
+                                      start=request.args.get('start', 1),
+                                      limit=request.args.get('limit', 20))
+    response['status'] = 'success'
+
+    response['total_hit'] = total_hit
+    # res['results'] = results_df.to_dict("records")
+    # res['results'] = jsonify(results_df)
+    response['elapse'] = end - start
+    return response
 
 
 @app.route('/search_es', methods=["GET"])

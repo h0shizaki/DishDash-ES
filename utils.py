@@ -3,6 +3,56 @@ from elastic_transport import ObjectApiResponse
 from flask import abort
 
 
+def get_queries_from_user(user, boost_keyword=1, boost_up=0.2, boost_down=0.2):
+    queries = []
+
+    if len(user['interestedCategory']) > 0:
+        queries.append({'match': {
+            'Keywords': {
+                'query': ' '.join(user['interestedCategory']),
+                'boost': 1 + boost_keyword
+            }
+        }})
+
+    else:
+        queries.append({
+            "function_score": {
+                "query": {"match_all": {}},
+                "random_score": {}
+            }
+        })
+
+    if len(user['interestedRecipe']) > 0:
+        like = []
+        for recipe in user['interestedRecipe']:
+            like.append({'_id': recipe})
+        queries.append({
+            'more_like_this': {
+                "fields": ["Name", "Keywords", "RecipeIngredientParts", "RecipeCategory"],
+                "like": like, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
+                'boost': 1 + boost_up
+            }
+        })
+
+    if len(user['uninterestedRecipe']) > 0:
+        dislike = []
+        for recipe in user['uninterestedRecipe']:
+            dislike.append({'_id': recipe})
+        queries.append({
+            'more_like_this': {
+                "fields": ["Name", "Keywords", "RecipeIngredientParts", "RecipeCategory"],
+                "like": dislike, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
+                "boost": 1 - boost_down
+            }
+        })
+
+    query = {"dis_max": {
+        "queries": queries
+    }}
+
+    return query
+
+
 def get_paginated_response(results, url, total, start=0, limit=20):
     start = int(start)
     limit = int(limit)
