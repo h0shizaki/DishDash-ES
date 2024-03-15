@@ -47,6 +47,31 @@ def search_recipe():
     response['elapse'] = end - start
     return response
 
+@app.route('/explore', methods=["GET"])
+def explore():
+    start = time.time()
+    search_size = request.args.get('search_size', 100)
+    query = {
+        "function_score": {
+            "query": {"match_all": {}},
+            "random_score": {}
+        }
+    }
+    results = app.es_client.search(index='recipe', source_excludes=['url_lists'], size=search_size, query=query)
+    total_hit = results['hits']['total']['value']
+    end = time.time()
+    response = get_paginated_response(results, '/explore?' + 'search_size=' + str(search_size),
+                                      total=len(results["hits"]["hits"]),
+                                      start=request.args.get('start', 1),
+                                      limit=request.args.get('limit', 20))
+    response['status'] = 'success'
+
+    response['total_hit'] = total_hit
+    # res['results'] = results_df.to_dict("records")
+    # res['results'] = jsonify(results_df)
+    response['elapse'] = end - start
+    return response
+
 
 @app.route('/recipe', methods=["GET"])
 def browse():
@@ -84,7 +109,7 @@ def recipe(recipe_id):
     start = time.time()
     suggest_size = request.args.get('suggest_size', 4)
 
-    recipe_db = app.db['cleaned_recipe']
+    recipe_db = app.db['recipes']
     result = recipe_db.find_one({'_id': ObjectId(recipe_id)})
 
     end = time.time()
