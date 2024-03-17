@@ -47,6 +47,7 @@ def search_recipe():
     response['elapse'] = end - start
     return response
 
+
 @app.route('/explore', methods=["GET"])
 def explore():
     start = time.time()
@@ -83,9 +84,9 @@ def browse():
     if user == None:
         return {'message': 'User Not Found', 'status': '404'}
 
-    print(user['username'], user['interestedCategory'], user['interestedRecipe'], user['uninterestedRecipe'])
+    print(user['username'], user['interestedCategory'], user['interestedRecipe'], user['uninterestedCategory'])
 
-    query = get_queries_from_user(user)
+    query = get_queries_from_user(user, 1, 1)
 
     results = app.es_client.search(index='recipe', query=query, size=search_size)
     total_hit = results['hits']['total']['value']
@@ -101,6 +102,103 @@ def browse():
     # res['results'] = results_df.to_dict("records")
     # res['results'] = jsonify(results_df)
     response['elapse'] = end - start
+    return response
+
+
+@app.route('/bookmark/<bookmark_id>', methods=["GET"])
+def bookmark_suggestion(bookmark_id):
+    start = time.time()
+    search_size = request.args.get('search_size', 44)
+    bookmarks = app.db['bookmarks']
+    bookmark = bookmarks.find_one({'_id': ObjectId(bookmark_id)})
+
+    if bookmark is None:
+        return {'message': 'User Not Found', 'status': '404'}
+
+    # print(bookmark)
+    records = (bookmark['records'])
+    like = []
+    for record in records:
+        like.append({'_id': str(record['recipe'])})
+
+    print(like)
+
+    suggestion_query = {}
+    if len(like) != 0:
+        suggestion_query = {
+            'more_like_this': {
+                "fields": ["Keywords", "RecipeIngredientParts", "RecipeCategory"],
+                "like": like, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
+            }
+        }
+    else:
+        suggestion_query = {
+            "query_string": {
+                "query": bookmark['title']
+            }
+        }
+
+    suggestions = app.es_client.search(index='recipe', query=suggestion_query, size=search_size)
+    suggestions_df = dataframe_parser(suggestions)
+
+    end = time.time()
+    response = {'status': 'success', 'elapse': end - start,
+                'suggestions': suggestions_df.to_dict("records")}
+
+    return response
+
+
+@app.route('/favorite', methods=["GET"])
+def favorite_list():
+    start = time.time()
+    users = app.db['users']
+    user_id = request.args.get('_id')
+    user = users.find_one({'_id': ObjectId(user_id)})
+    suggest_size = request.args.get('suggest_size', 24)
+    if user == None:
+        return {'message': 'User Not Found', 'status': '404'}
+    recipes = set(user['interestedRecipe'])
+    query = []
+    for recipe in recipes:
+        query.append(ObjectId(recipe))
+
+    recipe_db = app.db['recipes']
+    result = list(recipe_db.find({'_id': {'$in': query}}))
+    like = []
+
+    for doc in result:
+        doc['_id'] = str(doc['_id'])
+        like.append({'_id': doc['_id']})
+
+    suggestion_query = {}
+    if len(like) != 0:
+        suggestion_query = {
+            'more_like_this': {
+                "fields": ["Keywords", "RecipeIngredientParts", "RecipeCategory"],
+                "like": like, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
+            }
+        }
+    elif len(user['interestedCategory']) > 0:
+        suggestion_query = {
+            "match": {
+                "Keywords": ' '.join(user['interestedCategory'])
+            }
+        }
+    else:
+        suggestion_query = {
+            "function_score": {
+                "query": {"match_all": {}},
+                "random_score": {}
+            }
+        }
+
+    suggestions = app.es_client.search(index='recipe', query=suggestion_query, size=suggest_size)
+    suggestions_df = dataframe_parser(suggestions)
+
+    end = time.time()
+    response = {'status': 'success', 'results': result, 'elapse': end - start,
+                'suggestions': suggestions_df.to_dict("records")}
+
     return response
 
 

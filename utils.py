@@ -3,16 +3,26 @@ from elastic_transport import ObjectApiResponse
 from flask import abort
 
 
-def get_queries_from_user(user, boost_keyword=1, boost_up=0.2, boost_down=0.2):
+def get_queries_from_user(user, boost_keyword=1, boost_up=0.2, boost_down=0.5):
     queries = []
+    un_prefer = set(user['uninterestedCategory'])  # boost down
+    prefer = set(user['interestedCategory'])  # boost up
 
     if len(user['interestedCategory']) > 0:
-        queries.append({'match': {
-            'Keywords': {
-                'query': ' '.join(user['interestedCategory']),
-                'boost': 1 + boost_keyword
-            }
-        }})
+        queries.append(
+            {
+
+                "boosting": {
+                    "positive": {
+                        "match": {"Keywords": ' '.join(prefer)},
+                    },
+                    "negative": {
+                        "match": {"Keywords": ' '.join(un_prefer)}
+                    },
+                    "negative_boost": 0.7
+                }
+
+            })
 
     else:
         queries.append({
@@ -31,18 +41,6 @@ def get_queries_from_user(user, boost_keyword=1, boost_up=0.2, boost_down=0.2):
                 "fields": ["Name", "Keywords", "RecipeIngredientParts", "RecipeCategory"],
                 "like": like, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
                 'boost': 1 + boost_up
-            }
-        })
-
-    if len(user['uninterestedRecipe']) > 0:
-        dislike = []
-        for recipe in user['uninterestedRecipe']:
-            dislike.append({'_id': recipe})
-        queries.append({
-            'more_like_this': {
-                "fields": ["Name", "Keywords", "RecipeIngredientParts", "RecipeCategory"],
-                "like": dislike, "min_term_freq": 1, "min_doc_freq": 5, "max_query_terms": 20,
-                "boost": 1 - boost_down
             }
         })
 
