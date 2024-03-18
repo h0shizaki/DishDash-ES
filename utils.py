@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from elastic_transport import ObjectApiResponse
 from flask import abort
@@ -149,3 +150,33 @@ def dataframe_parser(results: ObjectApiResponse) -> pd.DataFrame:
         ]
     )
     return results_df
+
+
+# np.array(list(res["suggest"].values())).T
+def spell_correction_parser(res):
+    p = []
+    for term in res:
+        result = {"text": term[0]["text"]}
+        options = [v["options"] for v in term]
+        result["candidates"] = {}
+        for option in options:
+            candidates = {}
+            if len(option) > 0:
+                candidates["text"] = option[0]["text"]
+                for candidate in option:
+                    if candidate["text"] not in result["candidates"]:
+                        result["candidates"][candidate["text"]] = {
+                            "score": candidate["score"],
+                            "freq": candidate["freq"],
+                        }
+                    else:
+                        result["candidates"][candidate["text"]]["score"] = (result["candidates"][candidate["text"]]["score"] * result["candidates"][candidate["text"]]["freq"]+ candidate["score"] * candidate["freq"]) / (result["candidates"][candidate["text"]]["freq"] + candidate["freq"])
+                        result["candidates"][candidate["text"]]["freq"] = (result["candidates"][candidate["text"]]["freq"] + candidate["freq"])
+        p += [result["candidates"]]
+    suggestions = []
+
+    for suggestion in p:
+        new_data = [{'text': key, 'score': value['score'], 'freq': value['freq']} for key, value in
+                    suggestion.items()]
+        suggestions.append(new_data)
+    return suggestions

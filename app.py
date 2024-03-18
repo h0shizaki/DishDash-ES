@@ -1,3 +1,4 @@
+import numpy as np
 from bson import ObjectId
 from elasticsearch import Elasticsearch
 import os
@@ -10,7 +11,7 @@ import pandas as pd
 import pymongo
 from flask_cors import CORS
 
-from utils import dataframe_parser, get_paginated_response, get_queries_from_user
+from utils import dataframe_parser, get_paginated_response, get_queries_from_user, spell_correction_parser
 
 app = Flask(__name__)
 CORS(app)
@@ -237,6 +238,36 @@ def recipe(recipe_id):
 
     return response
 
+@app.route('/recipe/correction', methods=["GET"])
+def correction():
+    start = time.time()
+    text = request.args.get('text')
+
+    suggest_dictionary = {
+        "text": text,
+        "autocomplete-1": {"term": {"field": "Description"}},
+        "autocomplete-2": {"term": {"field": "Name"}},
+        "autocomplete-3": {"term": {"field": "RecipeInstructions"}},
+    }
+
+    tokens = text.lower().split(' ')
+    query_dictionary = {"suggest": suggest_dictionary}
+    res = app.es_client.search(index="recipe", body=query_dictionary)
+    resp = spell_correction_parser(np.array(list(res["suggest"].values())).T)
+
+    result = []
+    for i, token in enumerate(tokens):
+        result.append(
+            {
+                "text": token,
+                "candidates": resp[i]
+             }
+        )
+
+    end = time.time()
+    response = {'elapse': end - start, 'result': result, 'status': 'success'}
+
+    return response
 
 if __name__ == '__main__':
     app.run(debug=False)
