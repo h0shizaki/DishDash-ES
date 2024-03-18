@@ -1,16 +1,22 @@
 import numpy as np
 from bson import ObjectId
 from elasticsearch import Elasticsearch
-import os
-from pathlib import Path
-import json
-
 import time
-from flask import Flask, request, jsonify
-import pandas as pd
+from flask import Flask, request
 import pymongo
 from flask_cors import CORS
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
 
+from langchain_community.vectorstores import Chroma
+from langchain_community.chat_models import ChatOpenAI
+from langchain.chains.question_answering import load_qa_chain
+from openai import OpenAI
+from langchain_community.embeddings.sentence_transformer import (
+    SentenceTransformerEmbeddings,
+)
+
+import config
 from utils import dataframe_parser, get_paginated_response, get_queries_from_user, spell_correction_parser
 
 app = Flask(__name__)
@@ -18,8 +24,13 @@ CORS(app)
 app.es_client = Elasticsearch('https://localhost:9200', basic_auth=("elastic", "6E0GWL_MEddnKJWCnk*M"),
                               ca_certs="./http_ca.crt")
 app.mongo_client = pymongo.MongoClient("mongodb://root:123456@localhost:27017/?authMechanism=DEFAULT")
-app.db = app.mongo_client["IR"]
+app.openai_client = OpenAI(api_key=str(config.OPENAI_API_KEY))
 
+embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+app.vec_db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+
+
+app.db = app.mongo_client["IR"]
 
 @app.route('/search_recipe', methods=["GET"])
 def search_recipe():
@@ -100,8 +111,6 @@ def browse():
     response['status'] = 'success'
 
     response['total_hit'] = total_hit
-    # res['results'] = results_df.to_dict("records")
-    # res['results'] = jsonify(results_df)
     response['elapse'] = end - start
     return response
 
@@ -238,6 +247,7 @@ def recipe(recipe_id):
 
     return response
 
+
 @app.route('/recipe/correction', methods=["GET"])
 def correction():
     start = time.time()
@@ -261,12 +271,49 @@ def correction():
             {
                 "text": token,
                 "candidates": resp[i]
-             }
+            }
         )
 
     end = time.time()
     response = {'elapse': end - start, 'result': result, 'status': 'success'}
 
+    return response
+
+
+@app.route('/chat', methods=["GET"])
+def chat():
+    start = time.time()
+    text = request.args.get('text')
+    ai_resp = app.openai_client.chat.completions.create(
+        model="gpt-3.5-turbo-0125",
+        # response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are cooking AI assistance."},
+            {"role": "user", "content": text}
+        ]
+    )
+
+    print(ai_resp.choices[0].message.content)
+    end = time.time()
+
+    response = {'elapse': end - start, "status": "success", "result": ai_resp.choices[0].message.content}
+    return response
+
+
+@app.route('/lang-chain', methods=["GET"])
+def lang_chain():
+    start = time.time()
+    text = request.args.get('text')
+
+    model_name = "gpt-3.5-turbo"
+    llm = ChatOpenAI(model_name=model_name)
+    chain = load_qa_chain(llm, chain_type="stuff", verbose=True)
+    query = text
+    matching_docs = app.vec_db.similarity_search(query)
+    answer = chain.run(input_documents=matching_docs, question=query)
+    end = time.time()
+
+    response = {'elapse': end - start, "status": "success", "result": answer}
     return response
 
 if __name__ == '__main__':

@@ -1,2 +1,3 @@
 http_ca.crt
 __pycache__
+.env

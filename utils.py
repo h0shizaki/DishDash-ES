@@ -1,7 +1,5 @@
-import numpy as np
 import pandas as pd
 from elastic_transport import ObjectApiResponse
-from flask import abort
 
 
 def get_queries_from_user(user, boost_keyword=1, boost_up=0.2, boost_down=0.5):
